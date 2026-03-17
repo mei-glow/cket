@@ -1,5 +1,5 @@
 # ================================================================
-# DATAFLOW 2026 — STREAMLIT WEB APP
+# DATAFLOW 2026 - STREAMLIT WEB APP
 # Demo: User Behavior → Supply Chain Decision
 #
 # Run: streamlit run streamlit_app.py
@@ -27,7 +27,7 @@ warnings.filterwarnings('ignore')
 
 # ── Page config ────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="DATAFLOW 2026 — Supply Chain AI",
+    page_title="DATAFLOW 2026 - Supply Chain AI",
     page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -242,7 +242,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════
-# MODEL ARCHITECTURE — must match training exactly
+# MODEL ARCHITECTURE - must match training exactly
 # ══════════════════════════════════════════════════════════════════
 ATTRS             = ['attr_1','attr_2','attr_3','attr_4','attr_5','attr_6']
 M_NORM            = [12, 31, 99, 12, 31, 99]
@@ -458,7 +458,7 @@ class _PandasFixUnpickler(pickle.Unpickler):
     """Custom unpickler that patches pandas StringDtype compatibility."""
     def find_class(self, module, name):
         if module == 'pandas' and name == 'StringDtype':
-            # Return object dtype instead — avoids NDArrayBacked error
+            # Return object dtype instead - avoids NDArrayBacked error
             import pandas as pd
             class FakeStringDtype:
                 def __new__(cls, *args, **kwargs):
@@ -586,13 +586,13 @@ def compute_decision(result, fa_override=None, fb_override=None):
     wh_space  = min(1., warehouse_util * (1. + 0.3*(duration > 30)))
     lead_time = max(3, duration//3)
     actions = []
-    if result['risk']:    actions.append(('danger',  '⚠️ Dự đoán không chắc chắn — Kiểm tra thủ công trước khi quyết định'))
-    if fa >= 90 or fb >= 90: actions.append(('danger',  '🚨 Nhà máy hoạt động với công suất gần tối đa — Báo động kho ngay lập tức'))
-    if fa >= 75 or fb >= 75: actions.append(('warning', '📋 Nhà máy hoạt động với công suất cao — Lên kế hoạch sản xuất sớm, đặt trước nguyên liệu'))
-    if duration <= 3:         actions.append(('warning', '⚡ Đơn hàng gấp — Ưu tiên xử lý ngay hôm nay'))
-    elif duration <= 7:       actions.append(('warning', '📦 Đơn hàng tuần này — Lên kế hoạch ngay'))
-    if duration > 60:         actions.append(('ok',      '📦 Đơn hàng dài hạn — Cần đặt trước'))
-    if not actions:           actions.append(('ok',      '✅ Đơn hàng bình thường — Xử lý theo quy trình SOP'))
+    if result['risk']:    actions.append(('danger',  '⚠️ Dự đoán không chắc chắn - Kiểm tra thủ công trước khi quyết định'))
+    if fa >= 90 or fb >= 90: actions.append(('danger',  '🚨 Nhà máy hoạt động với công suất gần tối đa - Báo động kho ngay lập tức'))
+    if fa >= 75 or fb >= 75: actions.append(('warning', '📋 Nhà máy hoạt động với công suất cao - Lên kế hoạch sản xuất sớm, đặt trước nguyên liệu'))
+    if duration <= 3:         actions.append(('warning', '⚡ Đơn hàng gấp - Ưu tiên xử lý ngay hôm nay'))
+    elif duration <= 7:       actions.append(('warning', '📦 Đơn hàng tuần này - Lên kế hoạch ngay'))
+    if duration > 60:         actions.append(('ok',      '📦 Đơn hàng dài hạn - Cần đặt trước'))
+    if not actions:           actions.append(('ok',      '✅ Đơn hàng bình thường - Xử lý theo quy trình SOP'))
     return {'start': f'{s_mo:02d}/{s_day:02d}', 'end': f'{e_mo:02d}/{e_day:02d}',
             'duration': duration, 'fa': fa, 'fb': fb,
             'fa_lvl': 'CAO 🔴' if fa>=75 else 'TRUNG BÌNH 🟡' if fa>=50 else 'THẤP 🟢',
@@ -645,7 +645,7 @@ def plot_attention_heatmap(attn_weights, seq_len):
                 linewidths=0.2, linecolor='#1a2035',
                 cbar_kws={'shrink': 0.7, 'label': 'Attention Weight'})
     axes[0].set_facecolor(CARD_BG)
-    axes[0].set_title('🔍 Attention Heatmap — Mô hình đang chú ý vào token nào?',
+    axes[0].set_title('🔍 Attention Heatmap - Mô hình đang chú ý vào token nào?',
                        color='#e2e8f0', fontsize=11, pad=10)
     axes[0].set_xlabel('Token position (vị trí trong chuỗi hành vi)', color='#64748b')
     axes[0].tick_params(colors='#64748b', labelsize=8)
@@ -664,7 +664,7 @@ def plot_attention_heatmap(attn_weights, seq_len):
     axes[1].axvline(2.0, color=ORANGE, lw=1.5, linestyle=':', alpha=0.6, label='Medium threshold=2.0')
     axes[1].set_facecolor(CARD_BG)
     axes[1].set_xlabel('Attention Entropy (Dispersion)', color='#64748b')
-    axes[1].set_title('📊 Attention Dispersion — Cao = phân tán / không chắc chắn',
+    axes[1].set_title('📊 Attention Dispersion - Cao = phân tán / không chắc chắn',
                        color='#e2e8f0', fontsize=10)
     axes[1].tick_params(colors='#64748b', labelsize=8)
     axes[1].legend(fontsize=8, facecolor=CARD_BG, labelcolor='#94a3b8', edgecolor=GRID_C)
@@ -691,11 +691,11 @@ def plot_proba_bars(probs, preds, label_min, n_classes):
             ax.text(x[idx], p[idx]+0.002, f'{p[idx]:.1%}',
                     ha='center', fontsize=7, color='#94a3b8', rotation=40)
         conf_pct = p[pred_v-lmin]*100
-        ax.set_title(f'{attr} — {ATTR_NAMES_VI[attr]}\n→ {pred_v}  (P={conf_pct:.1f}%)',
+        ax.set_title(f'{attr} - {ATTR_NAMES_VI[attr]}\n→ {pred_v}  (P={conf_pct:.1f}%)',
                       color='#e2e8f0', fontsize=9)
         ax.set_xlabel('Value', fontsize=8)
         ax.set_ylabel('Probability', fontsize=8)
-    fig.suptitle('Phân phối xác suất dự đoán — Đỏ = giá trị được chọn',
+    fig.suptitle('Phân phối xác suất dự đoán - Đỏ = giá trị được chọn',
                   color='#e2e8f0', fontsize=12, fontweight='bold')
     fig.tight_layout(pad=1.5)
     return fig
@@ -1112,7 +1112,7 @@ def page_attention(temperature):
     <div style='padding:8px 0 24px'>
       <div class='title-sub'>XAI · Explainability</div>
       <h1 style='margin:0;font-size:1.9rem'>📊 Attention & Explainability</h1>
-      <p style='color:#64748b'>Phân tích cơ chế attention — Tại sao mô hình dự đoán sai trên dữ liệu dị biệt?</p>
+      <p style='color:#64748b'>Phân tích cơ chế attention - Tại sao mô hình dự đoán sai trên dữ liệu dị biệt?</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1161,9 +1161,9 @@ def page_attention(temperature):
             with col_m3: st.metric("Model Confidence", f"{conf:.0%}")
 
             if risk:
-                st.error("⚠️ **Attention phân tán cao** — Mô hình đang chú ý vào token không quan trọng (noise/padding). Cần kiểm tra thủ công trước khi ra quyết định!")
+                st.error("⚠️ **Attention phân tán cao** - Mô hình đang chú ý vào token không quan trọng (noise/padding). Cần kiểm tra thủ công trước khi ra quyết định!")
             else:
-                st.success("✅ **Attention tập trung** — Mô hình tự tin vào dự đoán này. Có thể tin tưởng kết quả.")
+                st.success("✅ **Attention tập trung** - Mô hình tự tin vào dự đoán này. Có thể tin tưởng kết quả.")
 
         except Exception as e:
             st.error(f"Lỗi: {e}")
@@ -1173,8 +1173,8 @@ def page_attention(temperature):
     st.markdown('<div class="section-title">📊 Familiar vs Anomalous (từ training set)</div>', unsafe_allow_html=True)
     st.markdown("""<div style='color:#94a3b8;font-size:0.85rem;margin-bottom:16px'>
     Hình ảnh dưới so sánh attention pattern của:
-    <b style='color:#34d399'>Dữ liệu quen thuộc (familiar)</b> — attention tập trung vào token đầu sequence
-    vs <b style='color:#f87171'>Dữ liệu dị biệt (anomalous)</b> — attention phân tán sang vùng padding
+    <b style='color:#34d399'>Dữ liệu quen thuộc (familiar)</b> - attention tập trung vào token đầu sequence
+    vs <b style='color:#f87171'>Dữ liệu dị biệt (anomalous)</b> - attention phân tán sang vùng padding
     </div>""", unsafe_allow_html=True)
 
     for attr_focus in ['attr_3', 'attr_6']:
@@ -1260,11 +1260,11 @@ def page_whatif(temperature):
     st.markdown('<div class="section-title">🔧 Điều chỉnh kịch bản giả lập</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("<div style='color:#94a3b8;font-size:0.85rem;margin-bottom:6px'>Nhà Máy A — Override (dùng -1 để dùng model prediction)</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#94a3b8;font-size:0.85rem;margin-bottom:6px'>Nhà Máy A - Override (dùng -1 để dùng model prediction)</div>", unsafe_allow_html=True)
         override_a = st.slider("Nhà Máy A (%)", -1, 99, -1, 1, key='wa', label_visibility='collapsed')
         st.markdown(f"<div style='color:#63b3ed;font-size:0.8rem'>{'→ Dùng model prediction' if override_a < 0 else f'→ Override: {override_a}%'}</div>", unsafe_allow_html=True)
     with col2:
-        st.markdown("<div style='color:#94a3b8;font-size:0.85rem;margin-bottom:6px'>Nhà Máy B — Override (dùng -1 để dùng model prediction)</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#94a3b8;font-size:0.85rem;margin-bottom:6px'>Nhà Máy B - Override (dùng -1 để dùng model prediction)</div>", unsafe_allow_html=True)
         override_b = st.slider("Nhà Máy B (%)", -1, 99, -1, 1, key='wb', label_visibility='collapsed')
         st.markdown(f"<div style='color:#63b3ed;font-size:0.8rem'>{'→ Dùng model prediction' if override_b < 0 else f'→ Override: {override_b}%'}</div>", unsafe_allow_html=True)
 
@@ -1329,9 +1329,9 @@ def page_whatif(temperature):
             if dec_sim['wh_space'] > 0.9:
                 st.error("🚨 **CẢNH BÁO NGHIÊM TRỌNG**: Kịch bản giả lập → KHO SẮP ĐẦY! Giải phóng diện tích ngay hoặc từ chối đơn hàng mới!")
             elif dec_sim['wh_space'] > 0.7:
-                st.warning("⚠️ Kịch bản giả lập: Kho sắp đến ngưỡng cảnh báo — Theo dõi chặt chẽ và chuẩn bị kế hoạch dự phòng")
+                st.warning("⚠️ Kịch bản giả lập: Kho sắp đến ngưỡng cảnh báo - Theo dõi chặt chẽ và chuẩn bị kế hoạch dự phòng")
             else:
-                st.success("✅ Kịch bản giả lập: Kho trong tầm kiểm soát — Tiếp tục theo dõi")
+                st.success("✅ Kịch bản giả lập: Kho trong tầm kiểm soát - Tiếp tục theo dõi")
 
         except Exception as e:
             st.error(f"Lỗi: {e}")

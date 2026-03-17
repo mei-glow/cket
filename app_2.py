@@ -1,5 +1,5 @@
 # ================================================================
-# DATAFLOW 2026 — STREAMLIT WEB APP (ENHANCED)
+# DATAFLOW 2026 - STREAMLIT WEB APP (ENHANCED)
 # New features:
 #   [NEW-1] CSV batch import + export results
 #   [NEW-2] Batch Prediction page (multiple customers at once)
@@ -33,7 +33,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 st.set_page_config(
-    page_title="DATAFLOW 2026 — Supply Chain AI",
+    page_title="DATAFLOW 2026 - Supply Chain AI",
     page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -395,13 +395,13 @@ def compute_decision(result,fa_override=None,fb_override=None):
     wh_space=min(1.,warehouse_util*(1.+0.3*(duration>30)))
     lead_time=max(3,duration//3)
     actions=[]
-    if result['risk']:         actions.append(('danger','⚠️ Dự đoán không chắc chắn — Kiểm tra thủ công'))
-    if fa>=90 or fb>=90:       actions.append(('danger','🚨 Nhà máy hoạt động với công suất gần tối đa — Báo động ngay'))
-    if fa>=75 or fb>=75:       actions.append(('warning','📋 Nhà máy hoạt động với công suất cao — Lên kế hoạch sản xuất sớm, đặt trước nguyên liệu'))
-    if duration<=3:            actions.append(('warning','⚡ Đơn gấp — Xử lý ngay hôm nay'))
-    elif duration<=7:          actions.append(('warning','📦 Đơn tuần này — Lên kế hoạch ngay'))
-    if duration>60:            actions.append(('ok','📦 Đơn dài hạn — Đặt trước diện tích kho'))
-    if not actions:            actions.append(('ok','✅ Bình thường — Xử lý theo SOP'))
+    if result['risk']:         actions.append(('danger','⚠️ Dự đoán không chắc chắn - Kiểm tra thủ công'))
+    if fa>=90 or fb>=90:       actions.append(('danger','🚨 Nhà máy hoạt động với công suất gần tối đa - Báo động ngay'))
+    if fa>=75 or fb>=75:       actions.append(('warning','📋 Nhà máy hoạt động với công suất cao - Lên kế hoạch sản xuất sớm, đặt trước nguyên liệu'))
+    if duration<=3:            actions.append(('warning','⚡ Đơn gấp - Xử lý ngay hôm nay'))
+    elif duration<=7:          actions.append(('warning','📦 Đơn tuần này - Lên kế hoạch ngay'))
+    if duration>60:            actions.append(('ok','📦 Đơn dài hạn - Đặt trước diện tích kho'))
+    if not actions:            actions.append(('ok','✅ Bình thường - Xử lý theo SOP'))
     return {'start':f'{s_mo:02d}/{s_day:02d}','end':f'{e_mo:02d}/{e_day:02d}',
             'duration':duration,'fa':fa,'fb':fb,
             'fa_lvl':'CAO 🔴' if fa>=75 else 'TRUNG BÌNH 🟡' if fa>=50 else 'THẤP 🟢',
@@ -411,7 +411,7 @@ def compute_decision(result,fa_override=None,fb_override=None):
             'actions':actions,'conf':result['conf'],'risk':result['risk']}
 
 # ══════════════════════════════════════════════════════════════════
-# SESSION STATE — Prediction History
+# SESSION STATE - Prediction History
 # ══════════════════════════════════════════════════════════════════
 def init_session():
     if 'history' not in st.session_state:
@@ -487,7 +487,7 @@ def plot_proba_bars(probs,preds,label_min,n_classes):
         ax.bar([pred_v],[p[pred_v-lmin]],color=RED if is_fac else ACCENT,alpha=1.,width=0.8,edgecolor='none')
         top3=np.argsort(p)[-3:]
         for idx in top3: ax.text(x[idx],p[idx]+0.002,f'{p[idx]:.1%}',ha='center',fontsize=7,color='#94a3b8',rotation=40)
-        ax.set_title(f'{attr} — {ATTR_NAMES_VI[attr]}\n→ {pred_v}  (P={p[pred_v-lmin]*100:.1f}%)',color='#e2e8f0',fontsize=9)
+        ax.set_title(f'{attr} - {ATTR_NAMES_VI[attr]}\n→ {pred_v}  (P={p[pred_v-lmin]*100:.1f}%)',color='#e2e8f0',fontsize=9)
     fig.suptitle('Phân phối xác suất dự đoán',color='#e2e8f0',fontsize=12,fontweight='bold')
     fig.tight_layout(pad=1.5); return fig
 
@@ -595,7 +595,7 @@ def plot_token_dna(seq, customer_id=""):
     ax.set_yticks([0.4, 1.4, 2.4, 3.4, 4.4, 5.4])
     ax.set_yticklabels(ATTRS, color='#64748b', fontsize=8)
     ax.set_xlabel('Token position', color='#64748b')
-    ax.set_title(f'🧬 Token DNA Fingerprint — {customer_id}\nVàng = Signal token',
+    ax.set_title(f'🧬 Token DNA Fingerprint - {customer_id}\nVàng = Signal token',
                  color='#e2e8f0', fontsize=10, pad=8)
 
     # Signal token markers
@@ -618,7 +618,7 @@ def plot_token_dna(seq, customer_id=""):
     ax2.set_title('Top Token Freq\n⭐ = Signal', color='#e2e8f0', fontsize=9)
     ax2.set_xlabel('Frequency', color='#64748b')
 
-    fig.suptitle(f'Token DNA — {n} tokens | {len(set(seq))} unique',
+    fig.suptitle(f'Token DNA - {n} tokens | {len(set(seq))} unique',
                  color='#e2e8f0', fontsize=12, fontweight='bold')
     fig.tight_layout(pad=1.5)
     return fig
@@ -646,7 +646,7 @@ def plot_capacity_plan(batch_results_df):
     ax1.hist(fa_vals, bins=20, color=ACCENT, alpha=0.7, edgecolor='none')
     ax1.axvline(75, color=RED, lw=2, linestyle='--', label='Ngưỡng 75%')
     ax1.axvline(fa_vals.mean(), color=ORANGE, lw=2, linestyle=':', label=f'Mean={fa_vals.mean():.0f}')
-    ax1.set_title('🏭 Nhà Máy A — Phân phối tải', color='#e2e8f0', fontsize=9)
+    ax1.set_title('🏭 Nhà Máy A - Phân phối tải', color='#e2e8f0', fontsize=9)
     ax1.set_xlabel('Factory Load (0-99)', color='#64748b')
     ax1.legend(fontsize=7, facecolor=CARD_BG, labelcolor='#94a3b8', edgecolor=GRID_C)
 
@@ -657,7 +657,7 @@ def plot_capacity_plan(batch_results_df):
     ax2.hist(fb_vals, bins=20, color=RED, alpha=0.7, edgecolor='none')
     ax2.axvline(75, color=RED, lw=2, linestyle='--', label='Ngưỡng 75%')
     ax2.axvline(fb_vals.mean(), color=ORANGE, lw=2, linestyle=':', label=f'Mean={fb_vals.mean():.0f}')
-    ax2.set_title('🏭 Nhà Máy B — Phân phối tải', color='#e2e8f0', fontsize=9)
+    ax2.set_title('🏭 Nhà Máy B - Phân phối tải', color='#e2e8f0', fontsize=9)
     ax2.set_xlabel('Factory Load (0-99)', color='#64748b')
     ax2.legend(fontsize=7, facecolor=CARD_BG, labelcolor='#94a3b8', edgecolor=GRID_C)
 
@@ -712,7 +712,7 @@ def plot_capacity_plan(batch_results_df):
             ax6.text(i, v + 0.2, str(v), ha='center', fontsize=10, color='white', fontweight='bold')
         ax6.set_title('⚡ Phân loại độ khẩn', color='#e2e8f0', fontsize=9)
 
-    fig.suptitle(f'🏭 Factory Capacity Plan — {len(batch_results_df)} khách hàng',
+    fig.suptitle(f'🏭 Factory Capacity Plan - {len(batch_results_df)} khách hàng',
                  color='#e2e8f0', fontsize=14, fontweight='bold')
     return fig
 
@@ -1165,11 +1165,11 @@ def page_capacity(temperature):
     </div>""", unsafe_allow_html=True)
 
     if avg_fa >= 75 or avg_fb >= 75:
-        st.error(f"🚨 CẢNH BÁO: Tải nhà máy trung bình CAO — NM-A:{avg_fa:.0f}%  NM-B:{avg_fb:.0f}%. Cần tăng công suất hoặc trì hoãn đơn hàng!")
+        st.error(f"🚨 CẢNH BÁO: Tải nhà máy trung bình CAO - NM-A:{avg_fa:.0f}%  NM-B:{avg_fb:.0f}%. Cần tăng công suất hoặc trì hoãn đơn hàng!")
     elif avg_fa >= 50 or avg_fb >= 50:
-        st.warning(f"⚠️ Tải nhà máy TRUNG BÌNH — NM-A:{avg_fa:.0f}%  NM-B:{avg_fb:.0f}%. Theo dõi chặt chẽ.")
+        st.warning(f"⚠️ Tải nhà máy TRUNG BÌNH - NM-A:{avg_fa:.0f}%  NM-B:{avg_fb:.0f}%. Theo dõi chặt chẽ.")
     else:
-        st.success(f"✅ Tải nhà máy trong tầm kiểm soát — NM-A:{avg_fa:.0f}%  NM-B:{avg_fb:.0f}%")
+        st.success(f"✅ Tải nhà máy trong tầm kiểm soát - NM-A:{avg_fa:.0f}%  NM-B:{avg_fb:.0f}%")
 
     # Capacity plan chart
     fig = plot_capacity_plan(batch_df)
@@ -1213,7 +1213,7 @@ def page_token_dna(temperature):
     <div style='padding:8px 0 24px'>
       <div class='title-sub'>Creative Visualization</div>
       <h1 style='margin:0;font-size:1.9rem'>🧬 Token DNA Fingerprint</h1>
-      <p style='color:#64748b'>Visualize chuỗi hành vi như DNA fingerprint — mỗi token là một "gene" tạo nên profile khách hàng</p>
+      <p style='color:#64748b'>Visualize chuỗi hành vi như DNA fingerprint - mỗi token là một "gene" tạo nên profile khách hàng</p>
     </div>""", unsafe_allow_html=True)
 
     st.markdown("""<div style='background:rgba(37,99,235,0.08);border:1px solid rgba(99,179,237,0.2);border-radius:12px;padding:14px;margin-bottom:20px;color:#94a3b8;font-size:0.85rem'>
@@ -1334,9 +1334,9 @@ def page_attention(temperature):
         with c3: st.metric("Confidence",f"{result['conf']:.0%}")
 
         if result['risk']:
-            st.error("⚠️ Attention phân tán cao — Kiểm tra thủ công trước khi ra quyết định!")
+            st.error("⚠️ Attention phân tán cao - Kiểm tra thủ công trước khi ra quyết định!")
         else:
-            st.success("✅ Attention tập trung — Dự đoán đáng tin cậy.")
+            st.success("✅ Attention tập trung - Dự đoán đáng tin cậy.")
 
     st.divider()
     for attr_focus in ['attr_3','attr_6']:
