@@ -259,13 +259,68 @@ def parse_sequence_text(text):
         try:
             v=float(item.strip())
             if not np.isnan(v): tokens.append(int(round(v)))
-        except: pass
+        except:
+            pass
     return tokens
+
+
+def _fix_pandas_dtypes(obj):
+    """
+    Recursively fix pandas objects after unpickling across environments.
+    """
+    if isinstance(obj, pd.DataFrame):
+        df = obj.copy()
+        for col in df.columns:
+            try:
+                dtype_str = str(df[col].dtype).lower()
+
+                if "string" in dtype_str:
+                    df[col] = df[col].astype(str)
+
+                elif "boolean" in dtype_str:
+                    if df[col].isna().any():
+                        df[col] = df[col].astype(object)
+                    else:
+                        df[col] = df[col].astype(bool)
+
+                elif dtype_str.startswith("int") and "[" in dtype_str:
+                    if df[col].isna().any():
+                        df[col] = df[col].astype("float64")
+                    else:
+                        df[col] = df[col].astype("int64")
+
+            except Exception:
+                pass
+        return df
+
+    if isinstance(obj, pd.Series):
+        s = obj.copy()
+        try:
+            dtype_str = str(s.dtype).lower()
+            if "string" in dtype_str:
+                s = s.astype(str)
+            elif "boolean" in dtype_str:
+                s = s.astype(object) if s.isna().any() else s.astype(bool)
+        except Exception:
+            pass
+        return s
+
+    if isinstance(obj, dict):
+        return {k: _fix_pandas_dtypes(v) for k, v in obj.items()}
+
+    if isinstance(obj, list):
+        return [_fix_pandas_dtypes(v) for v in obj]
+
+    if isinstance(obj, tuple):
+        return tuple(_fix_pandas_dtypes(v) for v in obj)
+
+    return obj
+
+
 class _PandasFixUnpickler(pickle.Unpickler):
     """Custom unpickler that patches pandas StringDtype compatibility."""
     def find_class(self, module, name):
         if module == 'pandas' and name == 'StringDtype':
-            # Return object dtype instead — avoids NDArrayBacked error
             import pandas as pd
             class FakeStringDtype:
                 def __new__(cls, *args, **kwargs):
