@@ -20,6 +20,7 @@ import io
 import csv
 import json
 import matplotlib
+from huggingface_hub import hf_hub_download
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -100,6 +101,8 @@ CHAIN_SECOND      = ['attr_4','attr_5']
 CHAIN_MAP         = {'attr_4':'attr_1','attr_5':'attr_2'}
 EMBED_DIM=160; N_HEADS=4; N_LAYERS=5; FF_DIM=640; DROPOUT=0.1
 POOL_EARLY_END=8; POOL_MID_END=16
+HF_REPO_ID = "meimei1302/dataflow-artifacts"
+HF_FILENAME = "artifacts_v96.pkl"
 DEVICE = torch.device('cpu')
 
 ATTR_NAMES_VI = {
@@ -265,20 +268,37 @@ def parse_sequence_text(text):
 @st.cache_resource(show_spinner="Loading model...")
 def load_artifacts():
     try:
-        with open('t_max/artifacts_v96.pkl','rb') as f:
-            arts=pickle.load(f)
-        for key in ['val_preds_df','disp_df']:
-            if key in arts and isinstance(arts[key],pd.DataFrame):
-                for col in arts[key].columns:
-                    try:
-                        if 'string' in str(arts[key][col].dtype).lower():
-                            arts[key][col]=arts[key][col].astype(object)
-                    except: pass
+        local_path = hf_hub_download(
+            repo_id=HF_REPO_ID,
+            filename=HF_FILENAME,
+            repo_type="model"
+        )
+
+        with open(local_path, "rb") as f:
+            try:
+                arts = pickle.load(f)
+            except Exception:
+                f.seek(0)
+                try:
+                    arts = _PandasFixUnpickler(f).load()
+                except Exception:
+                    f.seek(0)
+                    arts = pickle.load(f, encoding="latin1")
+
+        arts = _fix_pandas_dtypes(arts)
+
+        for key in ['val_preds_df', 'disp_df']:
+            if key in arts and isinstance(arts[key], pd.DataFrame):
+                arts[key] = _fix_pandas_dtypes(arts[key])
                 if 'id' in arts[key].columns:
-                    arts[key]['id']=arts[key]['id'].astype(str)
+                    arts[key]['id'] = arts[key]['id'].astype(str)
+
         return arts
+
     except Exception as e:
-        st.error(f"Cannot load artifacts: {e}"); return None
+        st.error(f"Cannot load artifacts: {e}")
+        st.code(str(e))
+        return None
 
 # ══════════════════════════════════════════════════════════════════
 # INFERENCE
