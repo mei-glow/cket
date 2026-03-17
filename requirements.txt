@@ -106,3 +106,4 @@ urllib3==2.6.3
 watchdog==6.0.0
 wcwidth==0.6.0
 xgboost==3.2.0
+huggingface_hub

@@ -11,11 +11,11 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import requests
 import math
 import pickle
 import io
 import matplotlib
+from huggingface_hub import hf_hub_download
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -254,9 +254,9 @@ CHAIN_SECOND      = ['attr_4','attr_5']
 CHAIN_MAP         = {'attr_4':'attr_1','attr_5':'attr_2'}
 EMBED_DIM=160; N_HEADS=4; N_LAYERS=5; FF_DIM=640; DROPOUT=0.1
 POOL_EARLY_END=8; POOL_MID_END=16
-ARTIFACT_URL = "https://huggingface.co/meimei1302/dataflow-artifacts/resolve/main/artifacts_v96.pkl"
-ARTIFACT_PATH = Path("artifacts_v96.pkl")
 DEVICE = torch.device('cpu')
+HF_REPO_ID = "meimei1302/dataflow-artifacts"
+HF_FILENAME = "artifacts_v96.pkl"
 
 ATTR_NAMES_VI = {
     'attr_1': 'Tháng bắt đầu', 'attr_2': 'Ngày bắt đầu',
@@ -466,31 +466,17 @@ class _PandasFixUnpickler(pickle.Unpickler):
             return FakeStringDtype
         return super().find_class(module, name)
 
-def download_file(url: str, output_path: Path):
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with requests.get(url, stream=True, timeout=300) as r:
-        r.raise_for_status()
-        with open(output_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
 
 @st.cache_resource(show_spinner="Loading model...")
 def load_artifacts():
     try:
-        if not ARTIFACT_PATH.exists():
-            with st.spinner("Downloading artifacts_v96.pkl from Hugging Face..."):
-                download_file(ARTIFACT_URL, ARTIFACT_PATH)
+        local_path = hf_hub_download(
+            repo_id=HF_REPO_ID,
+            filename=HF_FILENAME,
+            repo_type="model"
+        )
 
-        with open(ARTIFACT_PATH, "rb") as f:
-            head = f.read(100)
-            f.seek(0)
-
-            # chặn trường hợp tải nhầm HTML
-            if head.startswith(b"<") or b"html" in head.lower():
-                raise RuntimeError("Downloaded file is HTML, not a valid pickle file.")
-
+        with open(local_path, "rb") as f:
             try:
                 arts = pickle.load(f)
             except Exception:
