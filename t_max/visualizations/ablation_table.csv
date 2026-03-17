@@ -1,0 +1,6 @@
+version,val_wmse,exact_acc,attr3_wmse,improvement
+V9.0 Baseline,0.0182,0.31,0.085,Baseline Transformer
+V9.3 +seq stats,0.0145,0.42,0.062,↓20.3% WMSE Seq stats
+V9.5 +seg stats (4q),0.0098,0.58,0.041,↓32.4% WMSE Seg stats 4 quarters
+V9.6 +clean aux +soft decode,0.0087,0.63,0.034,↓11.2% WMSE Drop noisy+E[y]
+V9.6 +top-5 ens,0.0082,0.65,0.032,↓5.7% WMSE 1/WMSE ens
