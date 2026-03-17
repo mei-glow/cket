@@ -587,11 +587,11 @@ def compute_decision(result, fa_override=None, fb_override=None):
     lead_time = max(3, duration//3)
     actions = []
     if result['risk']:    actions.append(('danger',  '⚠️ Dự đoán không chắc chắn — Kiểm tra thủ công trước khi quyết định'))
-    if fa >= 90 or fb >= 90: actions.append(('danger',  '🚨 Nhà máy gần đầy tải — Báo động kho ngay lập tức'))
-    if fa >= 75 or fb >= 75: actions.append(('warning', '📋 Tải nhà máy cao — Lên kế hoạch sản xuất sớm, đặt trước nguyên liệu'))
+    if fa >= 90 or fb >= 90: actions.append(('danger',  '🚨 Nhà máy hoạt động với công suất gần tối đa — Báo động kho ngay lập tức'))
+    if fa >= 75 or fb >= 75: actions.append(('warning', '📋 Nhà máy hoạt động với công suất cao — Lên kế hoạch sản xuất sớm, đặt trước nguyên liệu'))
     if duration <= 3:         actions.append(('warning', '⚡ Đơn hàng gấp — Ưu tiên xử lý ngay hôm nay'))
     elif duration <= 7:       actions.append(('warning', '📦 Đơn hàng tuần này — Lên kế hoạch ngay'))
-    if duration > 60:         actions.append(('ok',      '📦 Đơn hàng dài hạn — Đặt trước diện tích kho'))
+    if duration > 60:         actions.append(('ok',      '📦 Đơn hàng dài hạn — Cần đặt trước'))
     if not actions:           actions.append(('ok',      '✅ Đơn hàng bình thường — Xử lý theo quy trình SOP'))
     return {'start': f'{s_mo:02d}/{s_day:02d}', 'end': f'{e_mo:02d}/{e_day:02d}',
             'duration': duration, 'fa': fa, 'fb': fb,
@@ -914,7 +914,7 @@ def page_home():
     """, unsafe_allow_html=True)
 
     # Causal chain visualization
-    st.markdown('<div class="section-title">🔗 Chuỗi Nhân Quả</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🔗 Chuỗi Dự Đoán</div>', unsafe_allow_html=True)
     cols = st.columns([2,0.3,2,0.3,2,0.3,2])
     box_style = "background:rgba(37,99,235,0.12);border:1px solid rgba(99,179,237,0.25);border-radius:12px;padding:16px;text-align:center"
     with cols[0]:
@@ -957,7 +957,7 @@ def page_home():
             'Phạm vi':    ['1-12','1-31','0-99','1-12','1-31','0-99'],
             'W_penalty':  W_PENALTY,
         })
-        st.dataframe(df_schema, use_container_width=True, hide_index=True)
+        st.dataframe(df_schema, width='stretch', hide_index=True)
 
     with col_b:
         st.markdown('<div class="section-title">🏗️ Model Architecture</div>', unsafe_allow_html=True)
@@ -1014,7 +1014,7 @@ def page_prediction(temperature):
             st.markdown(f"<code style='font-size:0.75rem'>{t}</code>  ", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    run = st.button("🚀 Predict", type="primary", use_container_width=False)
+    run = st.button("🚀 Predict", type="primary", width='content')
     if not run: return
 
     try:
@@ -1043,7 +1043,7 @@ def page_prediction(temperature):
     st.divider()
 
     # ── Causal chain: sequence → outputs
-    st.markdown('<div class="section-title">🔗 Chuỗi Nhân Quả: Hành vi 4 tuần → 6 Outputs → Quyết định</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🔗 Chuỗi Dự Đoán: Hành vi 4 tuần → 6 Outputs → Quyết định</div>', unsafe_allow_html=True)
     fig_chain = plot_behavior_timeline_single(seq, preds, conf, risk)
     st.image(fig_to_bytes(fig_chain), width="stretch")
 
@@ -1138,7 +1138,7 @@ def page_attention(temperature):
     st.markdown("<br>", unsafe_allow_html=True)
     seq_text = st.text_area("Chuỗi hành vi:", value="21040 20022 102 103 21040 105 20022 102 21040", height=75)
 
-    if st.button("🔍 Analyze Attention", use_container_width=False):
+    if st.button("🔍 Analyze Attention", width='content'):
         try:
             seq = parse_sequence_text(seq_text)
             arts = load_artifacts()
@@ -1426,7 +1426,7 @@ def page_risk(temperature):
         df_risk['Action'] = df_risk['Action'].apply(lambda x: x[0] if isinstance(x, list) else x)
         st.dataframe(df_risk[['ID','Preview','Seq Len','Factory A','Factory B',
                                'Duration','Dispersion','Max Weight','Confidence','Risk','Action']],
-                     use_container_width=True, hide_index=True)
+                     width='stretch', hide_index=True)
 
         # Risk chart
         if len(risk_results) > 1:
@@ -1528,7 +1528,7 @@ def page_analytics():
         df_abl = pd.read_csv("t_max/visualizations/ablation_table.csv")
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="section-title">🧪 Ablation Study Data Table</div>', unsafe_allow_html=True)
-        st.dataframe(df_abl, use_container_width=True, hide_index=True)
+        st.dataframe(df_abl, width='stretch', hide_index=True)
     except:
         pass
 
