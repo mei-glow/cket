@@ -1427,7 +1427,7 @@ def page_attention(temperature):
 def page_scheduler(temperature):
     st.markdown("""
     <div style='padding:8px 0 24px'>
-      <div class='title-sub'>Hướng 1 · Supply Chain</div>
+      <div class='title-sub'>Supply Chain</div>
       <h1 style='margin:0;font-size:1.9rem'>⚙️ Dynamic Scheduler</h1>
     </div>""", unsafe_allow_html=True)
 
@@ -1461,7 +1461,7 @@ def page_scheduler(temperature):
 def page_whatif(temperature):
     st.markdown("""
     <div style='padding:8px 0 24px'>
-      <div class='title-sub'>Hướng 2 · Scenario Planning</div>
+      <div class='title-sub'>Scenario Planning</div>
       <h1 style='margin:0;font-size:1.9rem'>🎯 What-If Simulator</h1>
     </div>""", unsafe_allow_html=True)
 
@@ -1531,7 +1531,7 @@ def page_whatif(temperature):
 def page_risk(temperature):
     st.markdown("""
     <div style='padding:8px 0 24px'>
-      <div class='title-sub'>Hướng 3 · Risk Management</div>
+      <div class='title-sub'>Risk Management</div>
       <h1 style='margin:0;font-size:1.9rem'>⚠️ Risk Detector</h1>
     </div>""", unsafe_allow_html=True)
 
