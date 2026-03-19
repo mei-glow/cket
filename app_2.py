@@ -147,7 +147,7 @@ ACCENT='#63b3ed'; RED='#f87171'; GREEN='#34d399'; ORANGE='#fbbf24'; GRID_C='#1e2
 
 # ── Assumptions (shown throughout app) ───────────────────────────
 ASSUMPTIONS = {
-    'duration': "Duration = (end_month - start_month) × 30 + (end_day - start_day). Giả định tháng = 30 ngày, không xử lý năm nhảy hay tháng 31 ngày. Đây là heuristic đủ tốt cho planning horizon.",
+    'duration': "Duration tính bằng ngày thực tế qua datetime.date. Xử lý: (1) end_month < start_month → wrap sang năm sau; (2) cùng tháng nhưng end_day < start_day → wrap ~12 tháng; (3) leap year — Feb-29 hợp lệ khi năm là năm nhảy; (4) day vượt cuối tháng → clamp (e.g. 31/4 → 30/4). reference_year mặc định = năm hiện tại.",
     'lead_time': "Lead time = max(3, duration ÷ 3). Giả định đơn hàng cần ít nhất 3 ngày chuẩn bị; đơn dài cần lead time tỷ lệ. Thực tế phụ thuộc loại sản phẩm và năng lực nhà máy.",
     'warehouse': "Warehouse utilization là proxy score = (FA + FB) / 198. FA, FB là factory load %, không phải m² kho. Score này phản ánh tương quan nhu cầu lưu kho, cần hiệu chỉnh với dữ liệu kho thực.",
     'stress_score': "Factory stress score = max(FA, FB). Khi một nhà máy quá tải, cả chuỗi cung ứng bị ảnh hưởng dù nhà máy kia còn dư công suất.",
@@ -620,6 +620,28 @@ def generate_business_interpretation(result, dec):
 # ══════════════════════════════════════════════════════════════════
 # BUSINESS LOGIC  — upgraded rule engine
 # ══════════════════════════════════════════════════════════════════
+def compute_duration_days(s_mo, s_day, e_mo, e_day, reference_year=None):
+    import datetime as _dt, calendar as _cal
+    if reference_year is None:
+        reference_year = _dt.date.today().year
+
+    def safe_date(year, month, day):
+        max_day = _cal.monthrange(year, month)[1]
+        return _dt.date(year, month, max(1, min(day, max_day)))
+
+    start = safe_date(reference_year, s_mo, s_day)
+
+    if e_mo > s_mo:
+        end_year = reference_year
+    elif e_mo < s_mo:
+        end_year = reference_year + 1
+    else:
+        end_year = reference_year if e_day >= s_day else reference_year + 1
+
+    end       = safe_date(end_year, e_mo, e_day)
+    duration  = (end - start).days
+    year_wrap = (end_year > reference_year)
+    return max(0, duration), start, end, year_wrap
 def compute_decision(result, fa_override=None, fb_override=None):
     """
     Step-based rule engine:
@@ -637,7 +659,7 @@ def compute_decision(result, fa_override=None, fb_override=None):
 
     # ── Step 1: Operational indicators ───────────────────────────
     # Assumption: 30 days/month heuristic (see ASSUMPTIONS dict)
-    duration     = max(0, (e_mo - s_mo) * 30 + (e_day - s_day))
+    duration, _start_dt, _end_dt, year_wrap = compute_duration_days(s_mo, s_day, e_mo, e_day)
     slack_days   = max(0, duration - 7)                          # buffer after urgent threshold
 
     # Factory stress = max single-factory load
@@ -768,6 +790,7 @@ def compute_decision(result, fa_override=None, fb_override=None):
         'conf':        result['conf'],
         'risk':        result['risk'],
         'uncertainty_penalty': uncertainty_penalty,
+        'year_wrap':           year_wrap,
     }
 
 # ══════════════════════════════════════════════════════════════════
