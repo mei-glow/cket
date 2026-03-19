@@ -12,7 +12,6 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from huggingface_hub import hf_hub_download
 import torch
 import torch.nn as nn
 import math
@@ -20,12 +19,15 @@ import pickle
 import io
 import csv
 import json
+import time
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
 import seaborn as sns
+from huggingface_hub import hf_hub_download
+
 from collections import Counter
 from pathlib import Path
 from datetime import datetime
@@ -340,6 +342,11 @@ def predict_sequence(seq_tuple,temperature=1.0,_arts_id=0):
     label_min=arts['label_min']; aux_dim=arts['aux_dim']
     max_seq_len=arts['max_seq_len']; action_freq=arts['action_freq']
     states=arts['pruned_states']; weights=arts['weights_A']
+
+    _t0_total = time.perf_counter()
+
+    # Feature extraction timing
+    _t0_feat = time.perf_counter()
     aux_f=build_aux_single(seq,action_freq)
     aux_df=pd.DataFrame([aux_f]).fillna(-1)
     aux_t=torch.FloatTensor(scaler.transform(aux_df))
@@ -347,8 +354,14 @@ def predict_sequence(seq_tuple,temperature=1.0,_arts_id=0):
     X=torch.zeros(1,max_seq_len,dtype=torch.long)
     for j in range(n): X[0,j]=action2idx.get(seq[j],1)
     L=torch.LongTensor([max(n,1)])
+    _ms_feat = (time.perf_counter() - _t0_feat) * 1000
+
+    # Model inference timing
+    _t0_model = time.perf_counter()
     sum_logits={attr:np.zeros(n_classes[attr]) for attr in ATTRS}; attn_weights=None
+    _model_times = []
     for idx,(state,w) in enumerate(zip(states,weights)):
+        _tm = time.perf_counter()
         model=DataflowModel(vocab_size,n_classes,aux_dim,max_seq_len)
         model.load_state_dict({k:v for k,v in state.items()}); model.eval()
         with torch.no_grad():
@@ -357,6 +370,9 @@ def predict_sequence(seq_tuple,temperature=1.0,_arts_id=0):
                 attn_weights=paw[0,:,:L[0].item()].numpy()
             else: outs=model(X,L,aux_t)
             for attr in ATTRS: sum_logits[attr]+=w*outs[attr].cpu().numpy()[0]
+        _model_times.append((time.perf_counter()-_tm)*1000)
+    _ms_model = (time.perf_counter() - _t0_model) * 1000
+
     preds,probs={},{}
     for attr in ATTRS:
         lmin=label_min[attr]; n_cls=n_classes[attr]
@@ -367,7 +383,7 @@ def predict_sequence(seq_tuple,temperature=1.0,_arts_id=0):
             class_vals=np.arange(lmin,lmin+n_cls,dtype=float)
             preds[attr]=int(np.rint((p*class_vals).sum()).clip(lmin,lmin+n_cls-1))
         else: preds[attr]=int(p.argmax())+lmin
-    for attr,( lo,hi) in CLIP.items():
+    for attr,(lo,hi) in CLIP.items():
         preds[attr]=int(np.clip(preds[attr],lo,hi))
     attr3_i=ATTRS.index('attr_3')
     w3=np.clip(attn_weights[attr3_i],1e-10,None); w3/=w3.sum()
@@ -375,9 +391,17 @@ def predict_sequence(seq_tuple,temperature=1.0,_arts_id=0):
     max_weight=float(attn_weights[attr3_i].max())
     conf_score=max(0.,min(1.,max_weight/0.6))
     risk_flag=(dispersion>3.5 or max_weight<0.3)
+    _ms_total = (time.perf_counter() - _t0_total) * 1000
     return {'preds':preds,'probs':probs,'attn':attn_weights,
             'dispersion':dispersion,'max_weight':max_weight,
-            'conf':conf_score,'risk':risk_flag}
+            'conf':conf_score,'risk':risk_flag,
+            'timing': {
+                'total_ms':   round(_ms_total, 1),
+                'feat_ms':    round(_ms_feat, 1),
+                'model_ms':   round(_ms_model, 1),
+                'per_model':  [round(t,1) for t in _model_times],
+                'seq_len':    len(seq),
+            }}
 
 # ══════════════════════════════════════════════════════════════════
 # BUSINESS LOGIC
@@ -396,8 +420,8 @@ def compute_decision(result,fa_override=None,fb_override=None):
     lead_time=max(3,duration//3)
     actions=[]
     if result['risk']:         actions.append(('danger','⚠️ Dự đoán không chắc chắn - Kiểm tra thủ công'))
-    if fa>=90 or fb>=90:       actions.append(('danger','🚨 Nhà máy hoạt động với công suất gần tối đa - Báo động ngay'))
-    if fa>=75 or fb>=75:       actions.append(('warning','📋 Nhà máy hoạt động với công suất cao - Lên kế hoạch sản xuất sớm, đặt trước nguyên liệu'))
+    if fa>=90 or fb>=90:       actions.append(('danger','🚨 Nhà máy gần đầy tải - Báo động ngay'))
+    if fa>=75 or fb>=75:       actions.append(('warning','📋 Tải cao - Lên kế hoạch sản xuất sớm'))
     if duration<=3:            actions.append(('warning','⚡ Đơn gấp - Xử lý ngay hôm nay'))
     elif duration<=7:          actions.append(('warning','📦 Đơn tuần này - Lên kế hoạch ngay'))
     if duration>60:            actions.append(('ok','📦 Đơn dài hạn - Đặt trước diện tích kho'))
@@ -798,7 +822,7 @@ def page_home():
         st.markdown('<div class="section-title">📋 Output Schema</div>', unsafe_allow_html=True)
         st.dataframe(pd.DataFrame({'Attr':ATTRS,'Ý nghĩa':list(ATTR_NAMES_VI.values()),
                                    'Range':['1-12','1-31','0-99','1-12','1-31','0-99'],
-                                   'W':W_PENALTY}), width='stretch', hide_index=True)
+                                   'W':W_PENALTY}), use_container_width=True, hide_index=True)
     with col_b:
         st.markdown('<div class="section-title">🆕 Tính năng mới</div>', unsafe_allow_html=True)
         features = [
@@ -815,7 +839,7 @@ def page_home():
 
     try:
         st.markdown("<br>", unsafe_allow_html=True)
-        st.image("t_max/attention_maps/mean_attention_heatmap.png", width='stretch')
+        st.image("t_max/attention_maps/mean_attention_heatmap.png", use_container_width=True)
     except: pass
 
 
@@ -855,15 +879,36 @@ def page_prediction(temperature):
 
     preds=result['preds']; probs=result['probs']
     conf=result['conf']; risk=result['risk']
+    timing=result.get('timing',{})
     dec=compute_decision(result)
 
     # Save to history
     add_to_history(cust_id or 'CUST', seq, result, dec)
 
+    # ── Inference timing banner ──────────────────────────────────
+    t_total=timing.get('total_ms',0); t_feat=timing.get('feat_ms',0)
+    t_model=timing.get('model_ms',0); n_mdl=len(timing.get('per_model',[]))
+    throughput=1000/max(t_total,1)
+    st.markdown(f"""
+    <div style='background:rgba(15,23,42,0.8);border:1px solid rgba(99,179,237,0.15);
+                border-radius:10px;padding:10px 18px;margin-bottom:8px;
+                display:flex;align-items:center;gap:20px;flex-wrap:wrap'>
+      <div style='display:flex;align-items:center;gap:8px'>
+        <span>⚡</span>
+        <span style='color:#64748b;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em'>Inference</span>
+        <span style='color:#63b3ed;font-family:Space Mono,monospace;font-weight:700'>{t_total:.1f} ms</span>
+      </div>
+      <div style='color:#1e293b'>│</div>
+      <span style='color:#475569;font-size:0.78rem'>Feature: <b style='color:#94a3b8;font-family:monospace'>{t_feat:.1f}ms</b></span>
+      <span style='color:#475569;font-size:0.78rem'>Model ×{n_mdl}: <b style='color:#94a3b8;font-family:monospace'>{t_model:.1f}ms</b></span>
+      <span style='color:#475569;font-size:0.78rem'>Tokens: <b style='color:#94a3b8;font-family:monospace'>{len(seq)}</b></span>
+      <span style='color:#475569;font-size:0.78rem'>Throughput: <b style='color:#34d399;font-family:monospace'>~{throughput:.0f} req/s</b></span>
+    </div>""", unsafe_allow_html=True)
+
     st.divider()
-    st.markdown('<div class="section-title">🔗 Chuỗi Dự Đoán</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🔗 Chuỗi Nhân Quả</div>', unsafe_allow_html=True)
     fig_chain = plot_behavior_timeline_single(seq, preds, conf, risk)
-    st.image(fig_to_bytes(fig_chain), width='stretch')
+    st.image(fig_to_bytes(fig_chain), use_container_width=True)
     st.divider()
 
     st.markdown('<div class="section-title">📊 6 Dự đoán</div>', unsafe_allow_html=True)
@@ -905,7 +950,7 @@ def page_prediction(temperature):
 
     st.divider()
     st.markdown('<div class="section-title">📈 Probability Distribution</div>', unsafe_allow_html=True)
-    st.image(fig_to_bytes(plot_proba_bars(probs,preds,arts['label_min'],arts['n_classes'])), width='stretch')
+    st.image(fig_to_bytes(plot_proba_bars(probs,preds,arts['label_min'],arts['n_classes'])), use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -915,7 +960,7 @@ def page_batch(temperature):
     st.markdown("""
     <div style='padding:8px 0 24px'>
       <div class='title-sub'>Batch Processing</div>
-      <h1 style='margin:0;font-size:1.9rem'>📂 Nhập và xuất dữ liệu hàng loạt</h1>
+      <h1 style='margin:0;font-size:1.9rem'>📂 Batch Import & Export</h1>
       <p style='color:#64748b'>Upload CSV nhiều khách hàng → Predict tất cả → Export kết quả + capacity plan</p>
     </div>""", unsafe_allow_html=True)
 
@@ -935,7 +980,7 @@ def page_batch(temperature):
             data=SAMPLE_CSV,
             file_name="sample_sequences.csv",
             mime="text/csv",
-            width='stretch',
+            use_container_width=True,
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -965,7 +1010,7 @@ def page_batch(temperature):
             if cname in df_in.columns: id_col = cname; break
 
         st.success(f"✅ Loaded {len(df_in):,} rows | ID col: `{id_col or 'auto'}` | Seq col: `{seq_col}`")
-        st.dataframe(df_in.head(3), width='stretch', hide_index=True)
+        st.dataframe(df_in.head(3), use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Parse error: {e}"); return
 
@@ -978,6 +1023,7 @@ def page_batch(temperature):
     results_rows = []
     prog = st.progress(0, text="Processing...")
     errors = []
+    _t0_batch = time.perf_counter()
 
     for i, row in df_in.iterrows():
         try:
@@ -989,12 +1035,15 @@ def page_batch(temperature):
                 errors.append(f"{cust_id}: sequence too short")
                 continue
 
+            _t0_row = time.perf_counter()
             result = predict_sequence(tuple(seq), temperature, _arts_id=id(arts))
+            _ms_row = (time.perf_counter() - _t0_row) * 1000
             if result is None: continue
 
             dec = compute_decision(result)
             add_to_history(cust_id, seq, result, dec)
 
+            timing_row = result.get('timing', {})
             row_out = {
                 'customer_id': cust_id,
                 'seq_len': len(seq),
@@ -1012,6 +1061,9 @@ def page_batch(temperature):
                 'confidence_pct': round(result['conf']*100, 1),
                 'risk': 'HIGH' if result['risk'] else 'LOW',
                 'recommendation': dec['actions'][0][1] if dec['actions'] else '',
+                'inference_ms': round(timing_row.get('total_ms', _ms_row), 1),
+                'feat_ms': round(timing_row.get('feat_ms', 0), 1),
+                'model_ms': round(timing_row.get('model_ms', 0), 1),
             }
             results_rows.append(row_out)
         except Exception as e:
@@ -1019,6 +1071,7 @@ def page_batch(temperature):
 
         prog.progress((i+1)/len(df_in), text=f"Processing {i+1}/{len(df_in)}...")
 
+    _ms_batch_total = (time.perf_counter() - _t0_batch) * 1000
     prog.empty()
 
     if not results_rows:
@@ -1034,6 +1087,40 @@ def page_batch(temperature):
     with col2: st.metric("🔴 HIGH RISK", n_high)
     with col3: st.metric("Avg Factory A", f"{df_out['attr_3'].mean():.1f}")
     with col4: st.metric("Avg Factory B", f"{df_out['attr_6'].mean():.1f}")
+
+    # ── Batch timing panel ──────────────────────────────────────
+    n_done = len(df_out)
+    if n_done > 0 and 'inference_ms' in df_out.columns:
+        avg_ms   = df_out['inference_ms'].mean()
+        min_ms   = df_out['inference_ms'].min()
+        max_ms   = df_out['inference_ms'].max()
+        p95_ms   = df_out['inference_ms'].quantile(0.95)
+        avg_feat = df_out['feat_ms'].mean() if 'feat_ms' in df_out.columns else 0
+        avg_mdl  = df_out['model_ms'].mean() if 'model_ms' in df_out.columns else 0
+        throughput_batch = n_done / max(_ms_batch_total/1000, 0.001)
+        st.markdown(f"""
+        <div style='background:rgba(15,23,42,0.8);border:1px solid rgba(99,179,237,0.15);
+                    border-radius:12px;padding:14px 20px;margin:12px 0'>
+          <div style='color:#475569;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px'>
+            ⚡ Batch Inference Timing
+          </div>
+          <div style='display:grid;grid-template-columns:repeat(7,1fr);gap:12px'>
+            <div><div style='color:#64748b;font-size:0.68rem'>Total batch</div>
+                 <div style='color:#63b3ed;font-family:monospace;font-size:0.9rem;font-weight:700'>{_ms_batch_total/1000:.2f}s</div></div>
+            <div><div style='color:#64748b;font-size:0.68rem'>Avg / req</div>
+                 <div style='color:#63b3ed;font-family:monospace;font-size:0.9rem;font-weight:700'>{avg_ms:.1f}ms</div></div>
+            <div><div style='color:#64748b;font-size:0.68rem'>Min</div>
+                 <div style='color:#34d399;font-family:monospace;font-size:0.9rem;font-weight:700'>{min_ms:.1f}ms</div></div>
+            <div><div style='color:#64748b;font-size:0.68rem'>Max</div>
+                 <div style='color:#f87171;font-family:monospace;font-size:0.9rem;font-weight:700'>{max_ms:.1f}ms</div></div>
+            <div><div style='color:#64748b;font-size:0.68rem'>P95</div>
+                 <div style='color:#fbbf24;font-family:monospace;font-size:0.9rem;font-weight:700'>{p95_ms:.1f}ms</div></div>
+            <div><div style='color:#64748b;font-size:0.68rem'>Feat avg</div>
+                 <div style='color:#94a3b8;font-family:monospace;font-size:0.9rem'>{avg_feat:.1f}ms</div></div>
+            <div><div style='color:#64748b;font-size:0.68rem'>Throughput</div>
+                 <div style='color:#34d399;font-family:monospace;font-size:0.9rem;font-weight:700'>{throughput_batch:.1f}/s</div></div>
+          </div>
+        </div>""", unsafe_allow_html=True)
 
     if errors:
         st.warning(f"⚠️ {len(errors)} errors: {'; '.join(errors[:3])}")
@@ -1051,7 +1138,7 @@ def page_batch(temperature):
                     'duration_days','warehouse_util_pct','confidence_pct','risk','recommendation']
     st.dataframe(
         df_out[display_cols].style.apply(highlight_risk, axis=1),
-        width='stretch', hide_index=True
+        use_container_width=True, hide_index=True
     )
 
     # Export buttons
@@ -1065,7 +1152,7 @@ def page_batch(temperature):
             data=csv_out,
             file_name=f"predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
-            width='stretch',
+            use_container_width=True,
         )
 
     with col_e2:
@@ -1077,7 +1164,7 @@ def page_batch(temperature):
             data=sub_csv,
             file_name=f"submission_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
-            width='stretch',
+            use_container_width=True,
         )
 
     with col_e3:
@@ -1090,7 +1177,7 @@ def page_batch(temperature):
                 data=risk_csv,
                 file_name=f"risk_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                width='stretch',
+                use_container_width=True,
             )
         else:
             st.success("✅ Không có HIGH RISK customers!")
@@ -1113,7 +1200,7 @@ def page_capacity(temperature):
     batch_df = st.session_state.get('batch_results', None)
 
     if batch_df is None:
-        st.info("💡 Chạy **Nhập và xuất dữ liệu hàng loạt** trước để có dữ liệu, hoặc nhập sequences thủ công bên dưới.")
+        st.info("💡 Chạy **Batch Import & Export** trước để có dữ liệu, hoặc nhập sequences thủ công bên dưới.")
 
         st.markdown('<div class="section-title">📝 Nhập thủ công (mỗi dòng 1 sequence)</div>', unsafe_allow_html=True)
         manual = st.text_area("Sequences:", value="\n".join(SAMPLE_CSV.strip().split('\n')[1:6]), height=120)
@@ -1174,27 +1261,16 @@ def page_capacity(temperature):
     # Capacity plan chart
     fig = plot_capacity_plan(batch_df)
     if fig:
-        st.image(fig_to_bytes(fig), width='stretch')
+        st.image(fig_to_bytes(fig), use_container_width=True)
 
-    # Top critical customers
     # Top critical customers
     st.markdown('<div class="section-title">🔴 Top Critical Customers</div>', unsafe_allow_html=True)
-    critical = batch_df[((batch_df['attr_3'] >= 75) | (batch_df['attr_6'] >= 75))].copy()
-    critical = critical.sort_values('attr_3', ascending=False)
-
+    critical = batch_df[((batch_df['attr_3']>=75)|(batch_df['attr_6']>=75))].copy()
+    critical = critical.sort_values('attr_3',ascending=False)
     if len(critical) > 0:
-        show_cols = []
-
-        if 'customer_id' in critical.columns:
-            show_cols.append('customer_id')
-
-        show_cols += [c for c in ['attr_3', 'attr_6', 'duration_days', 'duration'] if c in critical.columns]
-
-        st.dataframe(
-            critical[show_cols].head(10),
-            width='stretch',
-            hide_index=True
-        )
+        st.dataframe(critical[['customer_id','attr_3','attr_6','duration'] if 'customer_id' in critical.columns else
+                               ['attr_3','attr_6']].head(10),
+                     use_container_width=True, hide_index=True)
     else:
         st.success("✅ Không có critical customers!")
 
@@ -1245,7 +1321,7 @@ def page_token_dna(temperature):
 
         # DNA visualization
         fig_dna = plot_token_dna(seq, cust_id)
-        st.image(fig_to_bytes(fig_dna), width='stretch')
+        st.image(fig_to_bytes(fig_dna), use_container_width=True)
 
         # Prediction summary
         preds = result['preds']
@@ -1268,7 +1344,7 @@ def page_token_dna(temperature):
 
             if result2:
                 fig_dna2 = plot_token_dna(seq2, compare_id)
-                st.image(fig_to_bytes(fig_dna2), width='stretch')
+                st.image(fig_to_bytes(fig_dna2), use_container_width=True)
 
                 # Similarity score
                 cnt1 = Counter(seq); cnt2 = Counter(seq2)
@@ -1307,7 +1383,7 @@ def page_attention(temperature):
     st.markdown("""
     <div style='padding:8px 0 24px'>
       <div class='title-sub'>XAI · Explainability</div>
-      <h1 style='margin:0;font-size:1.9rem'>📊 Giải thích dự đoán</h1>
+      <h1 style='margin:0;font-size:1.9rem'>📊 Attention & XAI</h1>
     </div>""", unsafe_allow_html=True)
 
     c1,c2,c3=st.columns(3)
@@ -1326,7 +1402,7 @@ def page_attention(temperature):
             result = predict_sequence(tuple(seq), temperature, _arts_id=id(arts))
         if result is None: return
 
-        st.image(fig_to_bytes(plot_attention_heatmap(result['attn'], len(seq))), width='stretch')
+        st.image(fig_to_bytes(plot_attention_heatmap(result['attn'], len(seq))), use_container_width=True)
 
         c1,c2,c3=st.columns(3)
         with c1: st.metric("Dispersion",f"{result['dispersion']:.4f}",delta="⚠️ RISKY" if result['dispersion']>3.5 else "✅ OK")
@@ -1341,7 +1417,7 @@ def page_attention(temperature):
     st.divider()
     for attr_focus in ['attr_3','attr_6']:
         st.markdown(f"**Factory {'A' if attr_focus=='attr_3' else 'B'} ({attr_focus})**")
-        try: st.image(f"t_max/attention_maps/familiar_vs_anomalous_{attr_focus}.png", width='stretch')
+        try: st.image(f"t_max/attention_maps/familiar_vs_anomalous_{attr_focus}.png", use_container_width=True)
         except: st.info(f"Chạy training pipeline để sinh chart `{attr_focus}`")
 
 
@@ -1351,8 +1427,8 @@ def page_attention(temperature):
 def page_scheduler(temperature):
     st.markdown("""
     <div style='padding:8px 0 24px'>
-      <div class='title-sub'>Supply Chain Dynamic Scheduler</div>
-      <h1 style='margin:0;font-size:1.9rem'>⚙️ Lập lịch sản xuất</h1>
+      <div class='title-sub'>Supply Chain</div>
+      <h1 style='margin:0;font-size:1.9rem'>⚙️ Dynamic Scheduler</h1>
     </div>""", unsafe_allow_html=True)
 
     seq_text = st.text_area("Chuỗi hành vi:", value="21040 20022 102 103 21040 105 20022 102 21040 20022", height=75)
@@ -1364,7 +1440,7 @@ def page_scheduler(temperature):
         with st.spinner("Computing..."):
             result = predict_sequence(tuple(seq), temperature, _arts_id=id(arts))
         dec = compute_decision(result)
-        st.image(fig_to_bytes(plot_supply_dashboard(dec)), width='stretch')
+        st.image(fig_to_bytes(plot_supply_dashboard(dec)), use_container_width=True)
         st.divider()
         cols = st.columns(4)
         for (lbl,val,help_txt), col in zip([
@@ -1386,7 +1462,7 @@ def page_whatif(temperature):
     st.markdown("""
     <div style='padding:8px 0 24px'>
       <div class='title-sub'>Scenario Planning</div>
-      <h1 style='margin:0;font-size:1.9rem'>🎯 Giả lập kịch bản</h1>
+      <h1 style='margin:0;font-size:1.9rem'>🎯 What-If Simulator</h1>
     </div>""", unsafe_allow_html=True)
 
     seq_text = st.text_area("Chuỗi hành vi:", value="21040 20022 102 103 21040 105 20022 102 21040", height=75)
@@ -1430,7 +1506,7 @@ def page_whatif(temperature):
         axes[2].set_title('Sản lượng hôm nay (%)',color='#e2e8f0'); axes[2].set_ylim(0,110)
         fig.suptitle('What-If Comparison',color='#e2e8f0',fontsize=12,fontweight='bold')
         fig.tight_layout(pad=1.5)
-        st.image(fig_to_bytes(fig), width='stretch')
+        st.image(fig_to_bytes(fig), use_container_width=True)
 
         col_l,col_r=st.columns(2)
         with col_l:
@@ -1456,7 +1532,7 @@ def page_risk(temperature):
     st.markdown("""
     <div style='padding:8px 0 24px'>
       <div class='title-sub'>Risk Management</div>
-      <h1 style='margin:0;font-size:1.9rem'>⚠️ Phát hiện rủi ro</h1>
+      <h1 style='margin:0;font-size:1.9rem'>⚠️ Risk Detector</h1>
     </div>""", unsafe_allow_html=True)
 
     manual_seqs = st.text_area("Sequences (mỗi dòng 1 sequence):",
@@ -1498,7 +1574,7 @@ def page_risk(temperature):
         if n_high>len(df_r)*0.5: st.error(f"🚨 {n_high}/{len(df_r)} HIGH RISK!")
         elif n_high>0: st.warning(f"⚠️ {n_high} sequences cần kiểm tra")
 
-        st.dataframe(df_r,width='stretch',hide_index=True)
+        st.dataframe(df_r,use_container_width=True,hide_index=True)
 
         # Export risk report
         risk_csv=df_r.to_csv(index=False)
@@ -1514,14 +1590,14 @@ def page_history():
     st.markdown("""
     <div style='padding:8px 0 24px'>
       <div class='title-sub'>Session Tracking</div>
-      <h1 style='margin:0;font-size:1.9rem'>🕐 Lịch sử Dự đoán</h1>
+      <h1 style='margin:0;font-size:1.9rem'>🕐 Prediction History</h1>
       <p style='color:#64748b'>Lịch sử tất cả predictions trong session hiện tại</p>
     </div>""", unsafe_allow_html=True)
 
     hist = st.session_state.get('history', [])
 
     if not hist:
-        st.info("💡 Chưa có predictions. Hãy chạy Dự đoán 1 khách hàng hoặc Batch Import trước.")
+        st.info("💡 Chưa có predictions. Hãy chạy Single Prediction hoặc Batch Import trước.")
         return
 
     # Summary stats
@@ -1559,7 +1635,7 @@ def page_history():
     if risk_filter == "🔴 HIGH only": df_show = df_show[df_show['risk']=='🔴 HIGH']
     elif risk_filter == "🟢 LOW only": df_show = df_show[df_show['risk']=='🟢 LOW']
 
-    st.dataframe(df_show, width='stretch', hide_index=True)
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
 
     # Export & Clear
     col_e1, col_e2 = st.columns(2)
@@ -1570,10 +1646,10 @@ def page_history():
             data=hist_csv,
             file_name=f"history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
-            width='stretch',
+            use_container_width=True,
         )
     with col_e2:
-        if st.button("🗑️ Clear History", width='stretch'):
+        if st.button("🗑️ Clear History", use_container_width=True):
             st.session_state.history = []
             st.rerun()
 
@@ -1593,43 +1669,341 @@ def page_history():
         axes[2].set_title('A vs B Scatter', color='#e2e8f0')
         fig.suptitle('History Analytics', color='#e2e8f0', fontsize=12, fontweight='bold')
         fig.tight_layout(pad=1.5)
-        st.image(fig_to_bytes(fig), width='stretch')
+        st.image(fig_to_bytes(fig), use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════
 # PAGE: MODEL ANALYTICS
 # ══════════════════════════════════════════════════════════════════
+def _count_params(model):
+    """Count trainable and total params, broken down by module."""
+    total   = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    breakdown = {}
+    for name, module in model.named_children():
+        n = sum(p.numel() for p in module.parameters())
+        breakdown[name] = n
+    return total, trainable, breakdown
+
+
+def _run_latency_benchmark(model, vocab_size, n_classes, aux_dim, max_seq_len,
+                            seq_lens=[8, 16, 32, 64], n_warmup=3, n_runs=10):
+    """Benchmark inference latency at different sequence lengths."""
+    import time
+    results = []
+    model.eval()
+    for sl in seq_lens:
+        X   = torch.zeros(1, max_seq_len, dtype=torch.long)
+        L   = torch.LongTensor([min(sl, max_seq_len)])
+        aux = torch.randn(1, aux_dim)
+        # Warmup
+        with torch.no_grad():
+            for _ in range(n_warmup): model(X, L, aux)
+        # Benchmark
+        times = []
+        with torch.no_grad():
+            for _ in range(n_runs):
+                t0 = time.perf_counter()
+                model(X, L, aux)
+                times.append((time.perf_counter()-t0)*1000)
+        results.append({
+            'seq_len': sl,
+            'mean_ms': round(np.mean(times), 2),
+            'std_ms':  round(np.std(times), 2),
+            'min_ms':  round(np.min(times), 2),
+            'p95_ms':  round(np.percentile(times, 95), 2),
+        })
+    return results
+
+
+def plot_scalability(latency_data, param_breakdown):
+    """Plot scalability and parameter breakdown charts."""
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5), facecolor=DARK_BG)
+    axes_style(axes)
+
+    # 1. Latency vs seq_len
+    seq_lens  = [d['seq_len'] for d in latency_data]
+    mean_ms   = [d['mean_ms'] for d in latency_data]
+    std_ms    = [d['std_ms']  for d in latency_data]
+    p95_ms    = [d['p95_ms']  for d in latency_data]
+    axes[0].plot(seq_lens, mean_ms, color=ACCENT, lw=2.5, marker='o', markersize=7, label='Mean latency')
+    axes[0].fill_between(seq_lens,
+                          [m-s for m,s in zip(mean_ms,std_ms)],
+                          [m+s for m,s in zip(mean_ms,std_ms)],
+                          color=ACCENT, alpha=0.2, label='±1 std')
+    axes[0].plot(seq_lens, p95_ms, color=ORANGE, lw=1.5, linestyle='--', marker='s', markersize=5, label='P95')
+    axes[0].set_xlabel('Sequence Length (tokens)', color='#64748b')
+    axes[0].set_ylabel('Latency (ms)', color='#64748b')
+    axes[0].set_title('⚡ Inference Latency vs Seq Length\n(single request, CPU)', color='#e2e8f0', fontsize=9)
+    axes[0].legend(fontsize=8, facecolor=CARD_BG, labelcolor='#94a3b8', edgecolor=GRID_C)
+    for sl, ms in zip(seq_lens, mean_ms):
+        axes[0].annotate(f'{ms:.1f}ms', (sl, ms), textcoords='offset points',
+                         xytext=(0, 8), ha='center', fontsize=7, color='#94a3b8')
+
+    # 2. Throughput (req/s) vs seq_len
+    throughput = [1000/max(m,0.1) for m in mean_ms]
+    colors_tp  = [GREEN if t>20 else ORANGE if t>5 else RED for t in throughput]
+    bars = axes[1].bar(range(len(seq_lens)), throughput, color=colors_tp, alpha=0.85, edgecolor='none', width=0.6)
+    axes[1].set_xticks(range(len(seq_lens)))
+    axes[1].set_xticklabels([f'len={s}' for s in seq_lens], fontsize=8)
+    axes[1].set_ylabel('Requests / second', color='#64748b')
+    axes[1].set_title('🚀 Throughput vs Seq Length\n(single-threaded CPU)', color='#e2e8f0', fontsize=9)
+    for bar, v in zip(bars, throughput):
+        axes[1].text(bar.get_x()+bar.get_width()/2, bar.get_height()+0.3,
+                     f'{v:.1f}', ha='center', fontsize=8, color='white', fontweight='bold')
+
+    # 3. Parameter breakdown donut
+    names = list(param_breakdown.keys())
+    values = list(param_breakdown.values())
+    total_shown = sum(values)
+    pcts = [v/max(total_shown,1)*100 for v in values]
+    colors_p = [ACCENT, GREEN, ORANGE, RED, '#a78bfa', '#f472b6',
+                '#34d399', '#fbbf24', '#60a5fa', '#fb923c'][:len(names)]
+    wedges, texts, autotexts = axes[2].pie(
+        values, labels=None, colors=colors_p, autopct='%1.1f%%',
+        startangle=90, wedgeprops={'edgecolor': DARK_BG, 'linewidth': 2},
+        pctdistance=0.75)
+    for at in autotexts: at.set_fontsize(7); at.set_color('white')
+    axes[2].legend(wedges, [f'{n}\n{v/1e6:.2f}M' for n,v in zip(names,values)],
+                   loc='lower center', bbox_to_anchor=(0.5,-0.25), ncol=2,
+                   fontsize=7, facecolor=CARD_BG, labelcolor='#94a3b8', edgecolor=GRID_C)
+    axes[2].set_facecolor(DARK_BG)
+    axes[2].set_title('🧩 Parameter Distribution\nby Module', color='#e2e8f0', fontsize=9)
+
+    fig.suptitle('Model Scalability & Architecture Profile', color='#e2e8f0', fontsize=12, fontweight='bold')
+    fig.tight_layout(pad=1.5)
+    return fig
+
+
 def page_analytics():
     st.markdown("""
     <div style='padding:8px 0 24px'>
       <div class='title-sub'>Training Analytics</div>
-      <h1 style='margin:0;font-size:1.9rem'>📈 Phân tích mô hình</h1>
+      <h1 style='margin:0;font-size:1.9rem'>📈 Model Analytics</h1>
     </div>""", unsafe_allow_html=True)
 
-    arts=load_artifacts()
-    if arts:
-        best_wmse=min(s[1] for s in arts['pruned_scores'])
-        best_exact=max(s[0] for s in arts['pruned_scores'])
-        c1,c2,c3,c4=st.columns(4)
-        with c1: st.metric("Best Val WMSE",f"{best_wmse:.5f}")
-        with c2: st.metric("Best Exact",f"{best_exact:.4f}")
-        with c3: st.metric("Ensemble",f"{len(arts['pruned_states'])}/{5*2}")
-        with c4: st.metric("Aux Features",str(arts['aux_dim']))
+    arts = load_artifacts()
+    if not arts:
+        st.error("Model not loaded!"); return
 
-    tabs=st.tabs(["📉 Learning","📊 Per-Attr","🔍 Attention","🏭 Factory","📐 Calibration","🧪 Ablation","🎭 Diversity","🔗 Timeline","📋 Dashboard"])
-    imgs=["t_max/visualizations/learning_curves.png","t_max/visualizations/per_attr_wmse.png",
-          "t_max/visualizations/attention_analysis_full.png","t_max/visualizations/factory_range_analysis.png",
-          "t_max/visualizations/calibration_curves.png","t_max/visualizations/ablation_study.png",
-          "t_max/visualizations/ensemble_diversity.png","t_max/visualizations/behavior_timeline.png",
-          "t_max/visualizations/val_summary_dashboard.png"]
-    for tab,img in zip(tabs,imgs):
+    best_wmse  = min(s[1] for s in arts['pruned_scores'])
+    best_exact = max(s[0] for s in arts['pruned_scores'])
+    vocab_size  = arts['vocab_size']
+    aux_dim     = arts['aux_dim']
+    max_seq_len = arts['max_seq_len']
+    n_classes   = arts['n_classes']
+    n_ens       = len(arts['pruned_states'])
+
+    # ── Top metrics ───────────────────────────────────────────────
+    c1,c2,c3,c4 = st.columns(4)
+    with c1: st.metric("Best Val WMSE", f"{best_wmse:.5f}")
+    with c2: st.metric("Best Exact Acc", f"{best_exact:.4f}")
+    with c3: st.metric("Ensemble", f"{n_ens}/{5*2}")
+    with c4: st.metric("Aux Features", str(aux_dim))
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════════
+    # TAB LAYOUT
+    # ═══════════════════════════════════════════════════════════
+    tab_names = ["🏗️ Architecture","⚡ Scalability","📉 Learning","📊 Per-Attr",
+                 "🔍 Attention","🏭 Factory","📐 Calibration","🧪 Ablation",
+                 "🎭 Diversity","🔗 Timeline","📋 Dashboard"]
+    tabs = st.tabs(tab_names)
+
+    # ─── Tab 0: Architecture profile ──────────────────────────
+    with tabs[0]:
+        st.markdown('<div class="section-title">🏗️ Architecture Deep Dive</div>', unsafe_allow_html=True)
+
+        # Build one model to count params
+        with st.spinner("Profiling model..."):
+            sample_state = arts['pruned_states'][0]
+            model_demo   = DataflowModel(vocab_size, n_classes, aux_dim, max_seq_len)
+            model_demo.load_state_dict({k:v for k,v in sample_state.items()})
+            model_demo.eval()
+            total_p, train_p, breakdown = _count_params(model_demo)
+
+        # ── Model spec cards ───────────────────────────────────
+        specs = [
+            ("Transformer Layers",   f"L = {N_LAYERS}",        "Encoder layers"),
+            ("Attention Heads",      f"H = {N_HEADS}",         "Per layer"),
+            ("Embed Dimension",      f"D = {EMBED_DIM}",       "Token embedding dim"),
+            ("FF Dimension",         f"FF = {FF_DIM}",         "= 4×D"),
+            ("Total Parameters",     f"{total_p/1e6:.2f}M",   f"{total_p:,}"),
+            ("Trainable Params",     f"{train_p/1e6:.2f}M",   f"{train_p:,}"),
+            ("Vocab Size",           f"{vocab_size:,}",         "Unique tokens"),
+            ("Aux Features",         f"{aux_dim}",              "Hand-crafted features"),
+            ("Max Seq Length",       f"{max_seq_len}",          "Tokens"),
+            ("Ensemble Size",        f"{n_ens} models",        "1/WMSE weighted"),
+            ("Chain Decode",         "attr_4←attr_1",          "attr_5←attr_2"),
+            ("Soft Decode",          "attr_3, attr_6",         "E[y] expected value"),
+        ]
+        rows = [specs[i:i+3] for i in range(0, len(specs), 3)]
+        for row in rows:
+            cols = st.columns(3)
+            for col, (label, value, sub) in zip(cols, row):
+                with col:
+                    st.markdown(f"""
+                    <div class='card' style='padding:14px;margin-bottom:8px'>
+                      <div style='color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em'>{label}</div>
+                      <div style='color:#63b3ed;font-family:Space Mono,monospace;font-size:1.15rem;font-weight:700;margin:4px 0'>{value}</div>
+                      <div style='color:#475569;font-size:0.75rem'>{sub}</div>
+                    </div>""", unsafe_allow_html=True)
+
+        # ── Param breakdown table ──────────────────────────────
+        st.markdown('<div class="section-title">📊 Parameter Breakdown by Module</div>', unsafe_allow_html=True)
+        df_params = pd.DataFrame([
+            {'Module': name,
+             'Parameters': count,
+             'M Params': f"{count/1e6:.3f}M",
+             '% of Total': f"{count/max(total_p,1)*100:.1f}%",
+             'Type': ('Embedding' if 'emb' in name.lower() else
+                      'Attention' if 'attn' in name.lower() or 'trans' in name.lower() else
+                      'MLP/Aux' if 'aux' in name.lower() else
+                      'Head' if 'head' in name.lower() else 'Other')}
+            for name, count in sorted(breakdown.items(), key=lambda x: -x[1])
+        ])
+        st.dataframe(df_params, use_container_width=True, hide_index=True)
+
+        total_row_html = f"""
+        <div style='background:rgba(37,99,235,0.12);border:1px solid rgba(99,179,237,0.25);
+                    border-radius:8px;padding:10px 16px;margin-top:8px;display:flex;gap:24px'>
+          <span style='color:#64748b;font-size:0.8rem'>Total params:</span>
+          <span style='color:#63b3ed;font-family:monospace;font-weight:700'>{total_p/1e6:.3f}M ({total_p:,})</span>
+          <span style='color:#64748b;font-size:0.8rem'>Model size (fp32):</span>
+          <span style='color:#63b3ed;font-family:monospace;font-weight:700'>{total_p*4/1024/1024:.1f} MB</span>
+          <span style='color:#64748b;font-size:0.8rem'>Model size (fp16):</span>
+          <span style='color:#34d399;font-family:monospace;font-weight:700'>{total_p*2/1024/1024:.1f} MB</span>
+          <span style='color:#64748b;font-size:0.8rem'>×{n_ens} ensemble:</span>
+          <span style='color:#fbbf24;font-family:monospace;font-weight:700'>{total_p*4*n_ens/1024/1024:.1f} MB</span>
+        </div>"""
+        st.markdown(total_row_html, unsafe_allow_html=True)
+
+        # ── Model graph (text) ─────────────────────────────────
+        with st.expander("🔍 Full Module Summary"):
+            st.code(str(model_demo), language=None)
+
+        del model_demo
+
+    # ─── Tab 1: Scalability & Latency ─────────────────────────
+    with tabs[1]:
+        st.markdown('<div class="section-title">⚡ Scalability & Latency Benchmark</div>', unsafe_allow_html=True)
+
+        st.markdown("""<div style='background:rgba(15,23,42,0.7);border:1px solid rgba(99,179,237,0.15);
+        border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#94a3b8;font-size:0.82rem'>
+        💡 Benchmark chạy inference thực tế trên CPU (device của Streamlit). Kết quả phụ thuộc vào hardware.
+        Mỗi seq_len được đo <b style='color:#63b3ed'>10 lần</b> sau 3 lần warmup.
+        </div>""", unsafe_allow_html=True)
+
+        col_cfg1, col_cfg2 = st.columns(2)
+        with col_cfg1:
+            seq_lens_input = st.multiselect(
+                "Sequence lengths to benchmark:",
+                options=[4, 8, 16, 24, 32, 48, 64, 80],
+                default=[8, 16, 32, 64],
+            )
+        with col_cfg2:
+            n_runs_bench = st.slider("Runs per config:", 5, 30, 10)
+
+        if st.button("🏃 Run Benchmark", type="primary"):
+            if not seq_lens_input:
+                st.warning("Chọn ít nhất 1 sequence length!"); return
+
+            with st.spinner("Benchmarking... (30-60s)"):
+                sample_state = arts['pruned_states'][0]
+                model_bench  = DataflowModel(vocab_size, n_classes, aux_dim, max_seq_len)
+                model_bench.load_state_dict({k:v for k,v in sample_state.items()})
+                model_bench.eval()
+                _, _, breakdown_b = _count_params(model_bench)
+                latency_data = _run_latency_benchmark(
+                    model_bench, vocab_size, n_classes, aux_dim, max_seq_len,
+                    seq_lens=sorted(seq_lens_input), n_runs=n_runs_bench
+                )
+                del model_bench
+
+            # Summary table
+            df_lat = pd.DataFrame(latency_data)
+            df_lat['throughput_rps'] = (1000 / df_lat['mean_ms']).round(1)
+            df_lat['tokens_per_sec'] = (df_lat['seq_len'] * df_lat['throughput_rps']).round(0).astype(int)
+            st.markdown('<div class="section-title">📊 Latency Results</div>', unsafe_allow_html=True)
+            st.dataframe(df_lat.rename(columns={
+                'seq_len':'Seq Len','mean_ms':'Mean (ms)','std_ms':'Std (ms)',
+                'min_ms':'Min (ms)','p95_ms':'P95 (ms)',
+                'throughput_rps':'Throughput (req/s)','tokens_per_sec':'Tokens/s'
+            }), use_container_width=True, hide_index=True)
+
+            # Plot
+            fig_scale = plot_scalability(latency_data, breakdown_b)
+            st.image(fig_to_bytes(fig_scale), use_container_width=True)
+
+            # Scalability analysis text
+            min_l = latency_data[0]
+            max_l = latency_data[-1]
+            ratio = max_l['mean_ms'] / max(min_l['mean_ms'], 0.1)
+            min_tp = df_lat['throughput_rps'].iloc[0]
+            max_tp = df_lat['throughput_rps'].iloc[-1]
+
+            st.markdown(f"""
+            <div style='background:rgba(15,23,42,0.7);border:1px solid rgba(99,179,237,0.15);
+                        border-radius:10px;padding:14px 18px;margin-top:12px'>
+            <div style='color:#63b3ed;font-size:0.85rem;font-weight:700;margin-bottom:10px'>📐 Scalability Analysis</div>
+            <div style='color:#94a3b8;font-size:0.82rem;line-height:1.8'>
+                • Latency tăng <b style='color:#fbbf24'>{ratio:.1f}×</b> khi seq_len tăng
+                từ <b style='color:#63b3ed'>{min_l["seq_len"]}</b> → <b style='color:#63b3ed'>{max_l["seq_len"]}</b> tokens<br>
+                • Transformer: O(n²) attention - latency tăng bậc hai theo seq_len<br>
+                • <b style='color:#34d399'>Thực tế:</b> V9.6 max_seq_len={max_seq_len}, hầu hết sequences ngắn hơn → throughput cao<br>
+                • CPU throughput: <b style='color:#63b3ed'>{min_tp:.0f}–{max_tp:.0f} req/s</b>
+                | GPU A5000 dự kiến <b style='color:#34d399'>10-50×</b> nhanh hơn cho batch inference<br>
+                • Ensemble ×{n_ens}: mỗi model chạy độc lập → có thể parallelize để giảm latency
+            </div>
+            </div>""", unsafe_allow_html=True)
+
+            # Store for export
+            st.session_state['latency_data'] = df_lat
+
+        # Export latency report
+        if 'latency_data' in st.session_state:
+            lat_csv = st.session_state['latency_data'].to_csv(index=False)
+            st.download_button("⬇️ Export Latency Report",
+                               data=lat_csv,
+                               file_name=f"latency_benchmark_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                               mime="text/csv")
+
+    # ─── Tabs 2-10: Training charts ───────────────────────────
+    chart_tabs = tabs[2:]
+    imgs = [
+        "t_max/visualizations/learning_curves.png",
+        "t_max/visualizations/per_attr_wmse.png",
+        "t_max/visualizations/attention_analysis_full.png",
+        "t_max/visualizations/factory_range_analysis.png",
+        "t_max/visualizations/calibration_curves.png",
+        "t_max/visualizations/ablation_study.png",
+        "t_max/visualizations/ensemble_diversity.png",
+        "t_max/visualizations/behavior_timeline.png",
+        "t_max/visualizations/val_summary_dashboard.png",
+    ]
+    descs = [
+        "Loss/WMSE/Exact per epoch, convergence speed per model",
+        "WMSE, exact acc, MAE, error distribution per attribute",
+        "Dispersion, heatmap, familiar vs anomalous",
+        "True vs predicted scatter, MAE by factory range",
+        "Reliability diagrams + ECE per attribute",
+        "Feature engineering ablation: V9.0→V9.6",
+        "Pairwise model agreement + per-attr disagreement",
+        "4-week sequences → predictions (familiar vs anomalous)",
+        "Score card + per-attr WMSE + scatter all attrs",
+    ]
+    for tab, img, desc in zip(chart_tabs, imgs, descs):
         with tab:
-            try: st.image(img,width='stretch')
-            except: st.info(f"Chạy training pipeline: `{img}`")
+            st.markdown(f"<div style='color:#64748b;font-size:0.82rem;margin-bottom:12px'>{desc}</div>", unsafe_allow_html=True)
+            try: st.image(img, use_container_width=True)
+            except: st.info(f"💡 Chạy training pipeline: `{img}`")
 
+    # Ablation CSV
     try:
-        df_abl=pd.read_csv("t_max/visualizations/ablation_table.csv")
-        st.dataframe(df_abl,width='stretch',hide_index=True)
+        df_abl = pd.read_csv("t_max/visualizations/ablation_table.csv")
+        with tabs[7]:  # Ablation tab
+            st.dataframe(df_abl, use_container_width=True, hide_index=True)
     except: pass
 
 
