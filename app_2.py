@@ -421,7 +421,8 @@ def predict_sequence(seq_tuple, temperature=1.0, _arts_id=0):
     w3 = np.clip(attn_weights[attr3_i], 1e-10, None); w3 /= w3.sum()
     dispersion   = float(-np.sum(w3 * np.log2(w3)))
     max_weight   = float(attn_weights[attr3_i].max())
-    conf_score   = max(0., min(1., max_weight / 0.6))
+    conf_score = (1 - dispersion / 4.0) * max_weight
+    conf_score = float(np.clip(conf_score, 0, 1))
     risk_flag    = (dispersion > 3.5 or max_weight < 0.3)
     _ms_total    = (time.perf_counter() - _t0_total) * 1000
 
